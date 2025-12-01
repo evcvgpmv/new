@@ -1,0 +1,40 @@
+AdvancedFileUpload/
+│
+├── Services/
+│   └── FileService.cs
+│
+├── Components/
+│   └── AdvancedFileUpload.razor
+│
+├── Models/
+│   └── FileUploadModels.cs
+│
+├── wwwroot/
+│   ├── js/
+│   │   └── fileUpload.js
+│   └── css/
+│       └── fileUpload.css
+│
+└── Program.cs
+
+
+
+Installation Steps:
+Create a new Blazor Server project in Visual Studio or via CLI
+
+Create the folder structure as shown above
+
+Copy each file to its respective location
+
+Register the service in Program.cs (already included)
+
+Add the component to any page: <AdvancedFileUpload />
+
+Include the JavaScript in _Host.cshtml:
+
+html
+<script src="~/js/fileUpload.js"></script>
+Include the CSS in _Host.cshtml:
+
+html
+<link rel="stylesheet" href="~/css/fileUpload.css" />

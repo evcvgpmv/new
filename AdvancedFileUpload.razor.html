@@ -1,0 +1,352 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Hosting
+@inject FileService FileService
+@inject IJSRuntime JSRuntime
+
+<div class="file-upload-container">
+    <!-- Compact File Selection Area -->
+    <div class="compact-selection-area">
+        <div class="selection-header">
+            <h4>Attach Files</h4>
+            <button class="btn-add" @onclick="OpenFilePicker" title="Add files">
+                +
+            </button>
+        </div>
+        
+        <!-- Selected Files Horizontal List -->
+        @if (_selectedFiles.Any())
+        {
+            <div class="selected-files-horizontal">
+                @foreach (var file in _selectedFiles)
+                {
+                    <div class="file-chip">
+                        <span class="file-name">@file.Name</span>
+                        <button class="btn-remove-chip" @onclick="() => RemoveSelectedFile(file)" title="Remove file">
+                            ✖
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+        
+        <!-- File Input -->
+        <InputFile class="file-input" 
+                  @ref="_fileInput"
+                  multiple="true" 
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.txt,.xlsx,.xls"
+                  OnChange="OnInputFileChange" />
+    </div>
+
+    <!-- Upload Button -->
+    @if (_selectedFiles.Any())
+    {
+        <div class="upload-actions">
+            <button class="btn-upload" @onclick="UploadAllFiles" disabled="@(_isUploading)">
+                @if (_isUploading)
+                {
+                    <span>Uploading...</span>
+                }
+                else
+                {
+                    <span>Upload Files (@_selectedFiles.Count)</span>
+                }
+            </button>
+        </div>
+    }
+
+    <!-- Upload Progress -->
+    @if (_uploadingFiles.Any())
+    {
+        <div class="upload-progress-section">
+            <h4>Uploading Files</h4>
+            @foreach (var file in _uploadingFiles)
+            {
+                <div class="progress-item">
+                    <div class="file-info">
+                        <span class="file-name">@file.FileName</span>
+                        <span class="file-size">@FormatFileSize(file.Size)</span>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: @(file.Progress)%; 
+                                 background-color: @(file.Progress == 100 ? "#4CAF50" : "#2196F3")">
+                            </div>
+                        </div>
+                        <span class="progress-text">@file.Progress%</span>
+                    </div>
+                    @if (file.Progress == 100)
+                    {
+                        <span class="status-success">✓</span>
+                    }
+                    else if (file.Error)
+                    {
+                        <span class="status-error">✗</span>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Uploaded Files List -->
+    @if (_uploadedFiles.Any())
+    {
+        <div class="uploaded-files-section">
+            <h4>Uploaded Files (@_uploadedFiles.Count)</h4>
+            <div class="files-grid">
+                @foreach (var file in _uploadedFiles)
+                {
+                    <div class="file-card">
+                        <div class="file-icon">
+                            @GetFileIcon(file.FileName)
+                        </div>
+                        <div class="file-details">
+                            <div class="file-name">@file.FileName</div>
+                            <div class="file-meta">
+                                <span class="file-size">@file.FileSizeFormatted</span>
+                                <span class="file-date">@file.UploadDate.ToString("MMM dd, yyyy HH:mm")</span>
+                            </div>
+                        </div>
+                        <div class="file-actions">
+                            <button class="btn-action" title="Download" @onclick="() => DownloadFile(file)">
+                                ⬇️
+                            </button>
+                            <button class="btn-action btn-danger" title="Delete" @onclick="() => DeleteFile(file)">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Existing Files -->
+    @if (_existingFiles.Any() && !_uploadedFiles.Any() && !_selectedFiles.Any())
+    {
+        <div class="existing-files-section">
+            <h4>Previously Uploaded Files</h4>
+            <div class="files-list">
+                @foreach (var file in _existingFiles)
+                {
+                    <div class="file-item">
+                        <span class="file-name">@file.FileName</span>
+                        <span class="file-size">@file.FileSizeFormatted</span>
+                        <button class="btn-action btn-danger" @onclick="() => DeleteExistingFile(file)">
+                            Delete
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private ElementReference _fileInput;
+    private bool _isUploading = false;
+    private List<IBrowserFile> _selectedFiles = new();
+    private List<UploadingFile> _uploadingFiles = new();
+    private List<UploadedFileInfo> _uploadedFiles = new();
+    private List<UploadedFileInfo> _existingFiles = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadExistingFiles();
+    }
+
+    private async Task LoadExistingFiles()
+    {
+        _existingFiles = FileService.GetUploadedFiles().ToList();
+        StateHasChanged();
+    }
+
+    private void OpenFilePicker()
+    {
+        JSRuntime.InvokeVoidAsync("clickElement", _fileInput);
+    }
+
+    private async void OnInputFileChange(InputFileChangeEventArgs e)
+    {
+        await AddSelectedFiles(e.GetMultipleFiles());
+    }
+
+    private async Task AddSelectedFiles(IEnumerable<IBrowserFile> files)
+    {
+        foreach (var file in files)
+        {
+            if (!_selectedFiles.Any(f => f.Name == file.Name && f.Size == file.Size))
+            {
+                _selectedFiles.Add(file);
+            }
+        }
+        StateHasChanged();
+    }
+
+    private void RemoveSelectedFile(IBrowserFile file)
+    {
+        _selectedFiles.Remove(file);
+        StateHasChanged();
+    }
+
+    private async Task UploadAllFiles()
+    {
+        if (!_selectedFiles.Any()) return;
+
+        _isUploading = true;
+        StateHasChanged();
+
+        await ProcessFiles(_selectedFiles.ToList());
+
+        _selectedFiles.Clear();
+        _isUploading = false;
+        StateHasChanged();
+    }
+
+    private async Task ProcessFiles(List<IBrowserFile> files)
+    {
+        foreach (var file in files)
+        {
+            var uploadingFile = new UploadingFile
+            {
+                FileName = file.Name,
+                Size = file.Size,
+                Progress = 0
+            };
+
+            _uploadingFiles.Add(uploadingFile);
+        }
+
+        StateHasChanged();
+
+        foreach (var file in files)
+        {
+            var uploadingFile = _uploadingFiles.First(f => f.FileName == file.Name);
+            await UploadFile(file, uploadingFile);
+        }
+    }
+
+    private async Task UploadFile(IBrowserFile file, UploadingFile uploadingFile)
+    {
+        try
+        {
+            var buffer = new byte[4096];
+            var totalRead = 0L;
+            var totalSize = file.Size;
+
+            using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var memoryStream = new MemoryStream();
+            
+            int bytesRead;
+            while ((bytesRead = await stream.ReadAsync(buffer)) != 0)
+            {
+                await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+                totalRead += bytesRead;
+                
+                uploadingFile.Progress = (int)((double)totalRead / totalSize * 100);
+                StateHasChanged();
+                
+                await Task.Delay(10);
+            }
+
+            memoryStream.Position = 0;
+            var httpFile = new HttpFile(
+                file.Name,
+                file.Name,
+                memoryStream.ToArray(),
+                file.ContentType
+            );
+
+            var result = await FileService.UploadFileAsync(httpFile);
+            
+            if (result.Success)
+            {
+                uploadingFile.Progress = 100;
+                _uploadedFiles.Add(new UploadedFileInfo
+                {
+                    FileName = result.FileName,
+                    StoredFileName = result.StoredFileName,
+                    FileSize = result.FileSize,
+                    UploadDate = DateTime.Now
+                });
+            }
+            else
+            {
+                uploadingFile.Error = true;
+                Console.WriteLine($"Upload failed: {result.Error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            uploadingFile.Error = true;
+            Console.WriteLine($"Upload error: {ex.Message}");
+        }
+        finally
+        {
+            _ = RemoveUploadingFileAfterDelay(uploadingFile);
+        }
+    }
+
+    private async Task RemoveUploadingFileAfterDelay(UploadingFile file)
+    {
+        await Task.Delay(2000);
+        _uploadingFiles.Remove(file);
+        StateHasChanged();
+    }
+
+    private async Task DownloadFile(UploadedFileInfo file)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("downloadFile", file.StoredFileName, file.FileName);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Download error: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteFile(UploadedFileInfo file)
+    {
+        if (FileService.DeleteFile(file.StoredFileName))
+        {
+            _uploadedFiles.Remove(file);
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteExistingFile(UploadedFileInfo file)
+    {
+        if (FileService.DeleteFile(file.StoredFileName))
+        {
+            _existingFiles.Remove(file);
+            StateHasChanged();
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        int order = 0;
+        double len = bytes;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private string GetFileIcon(string fileName)
+    {
+        var extension = System.IO.Path.GetExtension(fileName).ToLower();
+        return extension switch
+        {
+            ".pdf" => "📄",
+            ".doc" or ".docx" => "📝",
+            ".xls" or ".xlsx" => "📊",
+            ".jpg" or ".jpeg" or ".png" or ".gif" => "🖼️",
+            ".txt" => "📃",
+            _ => "📎"
+        };
+    }
+}
